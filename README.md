@@ -1,131 +1,430 @@
-<<<<<<< HEAD
-# natural-language-robot-agent
-A voice and text interface that turns natural-language commands into safety-checked robot actions.
-=======
-# Robot Command Agent
+# Natural Language Robot Agent
 
-A voice-enabled robot command interface that combines the conversational UX of an AI receptionist with a safety-gated robot command pipeline.
+A voice- and text-controlled interface that translates natural-language instructions into safety-checked commands for a physical service robot.
 
-Speak or type a natural language command → OpenAI interprets it → the safety checker classifies risk → allowed commands are dispatched to the physical robot via its REST API.
+The project supports both normal step-by-step execution and an offline-friendly **Plan B** that compiles an entire route into one autonomous mission when the network is degraded.
+
+## User Manual
+
+For a step-by-step walkthrough of the interface, command flow, safety controls, Plan A, and Plan B, see the full user guide:
+
+**[Open the Robot Command Agent User Manual](https://docs.google.com/document/d/1KqaA28YRWo-C0sdNNKRA46MXr6iLM9BtN0A01re0K98/edit?tab=t.5r2cj8r13v7c)**
+
+> Make sure the Google Doc is shared as **Anyone with the link can view** so visitors to the repository can open it.
+
+## Demo Flow
+
+```text
+Voice or text input
+        ↓
+Local Qwen command parser
+        ↓
+Canonical robot commands
+        ↓
+Robot REST API translation
+        ↓
+Safety classification
+        ↓
+Dry-run, confirmation, block, or dispatch
+        ↓
+Live progress and spoken feedback
+```
+
+Example:
+
+```text
+"Go to waiting one, then the front desk, then return to the charger"
+```
+
+becomes:
+
+```text
+go to waiting1
+go to front_desk
+return to charger
+```
+
+The parser only accepts locations reported by the robot and stops the sequence when it encounters an unknown destination.
+
+## What I Built
+
+### Natural-language command parsing
+
+- Accepts typed commands and browser speech recognition
+- Splits multi-step requests into ordered robot actions
+- Normalizes alternate wording such as “go home,” “halt,” or “waiting one”
+- Matches spoken destinations against the robot’s allowed marker list
+- Prevents the model from inventing locations
+- Uses a locally hosted Qwen 3.6 35B model as the primary parser
+- Falls back to a smaller Qwen 2.5 0.5B MLX model when the primary model is unavailable
+- Includes a rule-based fallback for common voice-style navigation sequences
+
+### Safety-gated execution
+
+Every translated API request is classified before it can reach the robot.
+
+| Level | Behavior |
+|---|---|
+| `SAFE` | Read-only status and information requests are allowed |
+| `SAFETY` | Stop and emergency-stop actions are allowed immediately |
+| `WARNING` | Normal marker-based navigation is allowed |
+| `HIGH_WARNING` | Direct movement or hardware control requires confirmation |
+| `CRITICAL` | Shutdown, networking, configuration, marker deletion, and software-update operations are blocked |
+| `INVALID` | Unknown or malformed commands are rejected |
+
+The app starts in **dry-run mode**, so commands can be parsed and reviewed without controlling the real robot. Real-robot mode requires the exact confirmation phrase:
+
+```text
+ENABLE REAL ROBOT
+```
+
+### Plan A: connected sequence execution
+
+In normal network conditions, commands are sent one at a time.
+
+- Streams step-by-step progress to the UI with Server-Sent Events
+- Waits for movement to actually finish before sending the next command
+- Tracks robot task IDs when available
+- Requires a minimum runtime and multiple stable completion polls to avoid reporting success too early
+- Aborts the remaining sequence when a stop command is received
+- Stops the sequence when a movement fails
+
+### Plan B: autonomous mission execution
+
+A background monitor measures robot API latency and packet loss.
+
+When the connection becomes degraded, the UI can switch to Plan B:
+
+1. Parse the full natural-language instruction
+2. Validate destinations
+3. Compile supported actions into one robot task-flow payload
+4. Send the mission in a single request
+5. Let the robot continue autonomously without further network contact
+
+Plan B supports:
+
+- Multi-stop marker navigation
+- Patrol routes
+- Return-to-charger actions
+- Cabin docking
+- Mission preview before dispatch
+- Dry-run mission compilation
+- Runtime network-threshold adjustment for testing Plan A and Plan B
+
+Read-only, safety, invalid, and unsupported commands are skipped or stop compilation as appropriate.
+
+### Robot integration
+
+- Separate REST hosts for chassis and tool operations
+- Automatic GET/POST method selection
+- Marker discovery from the physical robot
+- Robot connectivity, battery, movement status, and floor display
+- Command completion polling
+- Configurable request and polling timeouts
+- Last 50 command results stored in memory
+
+### Voice feedback
+
+- Optional ElevenLabs text-to-speech
+- Configurable voice, model, output format, stability, similarity, and style
+- In-memory audio caching
+- Browser speech-synthesis fallback in the frontend
+
+### Interface
+
+The single-page control panel includes:
+
+- Voice and text command entry
+- Robot online/offline status
+- Dry-run and real-robot indicators
+- Safety-level explanations
+- Confirmation modal for higher-risk actions
+- Pending command queue
+- Live sequence progress
+- Command history
+- Network quality and latency information
+- Plan B warning and mission controls
+- Marker refresh
+- Optional spoken replies
+- Expandable system and maintenance commands
 
 ## Architecture
 
-```
-User (voice or text)
-  → Browser speech recognition
-  → POST /command
-  → ai_parser.ai_normalize_command()    # OpenAI: NL → canonical command string
-  → command_parser.translate_command()  # canonical string → robot API path
-  → safety_checker.check_safety()       # classify risk level
-  → robot_client.send_robot_command()   # dispatch if allowed
-  → Response + ElevenLabs TTS feedback
+```text
+index.html
+   │
+   ├── browser speech recognition
+   ├── command queue and history UI
+   ├── network/robot status panels
+   └── streamed sequence updates
+           │
+           ▼
+FastAPI — app/main.py
+   │
+   ├── ai_parser.py
+   │     Natural language → canonical command list
+   │
+   ├── command_parser.py
+   │     Canonical command → robot REST endpoint
+   │
+   ├── safety_checker.py
+   │     Risk classification and execution policy
+   │
+   ├── robot_client.py
+   │     Command dispatch and completion polling
+   │
+   ├── network_monitor.py
+   │     Rolling latency/loss monitoring
+   │
+   ├── mission_compiler.py
+   │     Plan B autonomous task-flow generation
+   │
+   └── tts.py
+         ElevenLabs speech generation and cache
 ```
 
-## Main Files
+## Supported Commands
 
-```
-robot-agent/
-  app/
-    main.py            # FastAPI app, routes, orchestration
-    ai_parser.py       # OpenAI-based NL → command normalizer
-    command_parser.py  # Canonical string → robot API path
-    safety_checker.py  # Risk classification + allow/block/confirm logic
-    robot_client.py    # HTTP dispatch to robot chassis/tools endpoints
-    tts.py             # ElevenLabs TTS (with browser fallback)
-    models.py          # Pydantic request/response schemas
-  tests/
-    test_commands.py   # Pytest suite for parser + safety (no API key needed)
-  index.html           # Single-page UI
-  requirements.txt
-  .env.example
+### Read-only
+
+```text
+status
+battery
+where are you
+list markers
+current map
 ```
 
-## Safety Levels
+### Navigation
 
-| Level        | Behaviour                                           |
-|--------------|-----------------------------------------------------|
-| SAFE         | Read-only queries. Always allowed.                  |
-| SAFETY       | Stop/e-stop commands. Always allowed.               |
-| WARNING      | Normal navigation. Allowed without confirmation.    |
-| HIGH_WARNING | Direct motion or hardware. Requires confirmation.   |
-| CRITICAL     | System/config/shutdown. Blocked + alert logged.     |
-| INVALID      | Unknown or unparseable command.                     |
+```text
+go to <marker>
+patrol <marker 1>, <marker 2>
+return to charger
+```
+
+### Safety
+
+```text
+stop
+emergency stop
+disable emergency stop
+```
+
+### Direct control
+
+These require manual confirmation:
+
+```text
+move forward
+move backward
+turn left
+turn right
+lift cabin
+drop cabin
+```
+
+### Blocked critical operations
+
+```text
+shutdown
+reboot
+change wifi
+delete markers
+update software
+```
+
+## Project Structure
+
+```text
+natural-language-robot-agent/
+├── app/
+│   ├── main.py
+│   ├── ai_parser.py
+│   ├── command_parser.py
+│   ├── safety_checker.py
+│   ├── robot_client.py
+│   ├── mission_compiler.py
+│   ├── network_monitor.py
+│   ├── tts.py
+│   └── models.py
+├── index.html
+├── requirements.txt
+├── README.md
+└── .gitignore
+```
 
 ## Setup
+
+### 1. Create a virtual environment
 
 ```bash
 python3 -m venv venv
 source venv/bin/activate
-pip install -r requirements.txt
-cp .env.example .env
-# Fill in OPENAI_API_KEY (required) and optionally ELEVENLABS_* keys
 ```
 
-## Running
+On Windows:
+
+```bash
+venv\Scripts\activate
+```
+
+### 2. Install dependencies
+
+```bash
+pip install -r requirements.txt
+```
+
+### 3. Configure environment variables
+
+Create a `.env` file in the project root:
+
+```env
+ROBOT_CHASSIS_HOST=http://ROBOT_IP:9001
+ROBOT_TOOLS_HOST=http://ROBOT_IP:19001
+ROBOT_TIMEOUT_SECONDS=10
+
+CHASSIS_SN=your_chassis_serial
+CABIN_SN=your_cabin_serial
+CABIN_ID=your_cabin_id
+TOOLS_HOST=http://ROBOT_IP:19001
+STORE_ID=your_store_id
+CLIENT_TOKEN=your_client_token
+
+ELEVENLABS_API_KEY=
+ELEVENLABS_VOICE_ID=
+ELEVENLABS_MODEL=eleven_flash_v2_5
+ELEVENLABS_OUTPUT_FORMAT=mp3_44100_128
+ELEVENLABS_TIMEOUT_SECONDS=15
+ELEVENLABS_MAX_CHARS=500
+ELEVENLABS_TTS_CACHE=true
+```
+
+ElevenLabs is optional.
+
+### 4. Start the local language model
+
+By default, the parser expects an OpenAI-compatible local server at:
+
+```text
+http://127.0.0.1:8080/v1/chat/completions
+```
+
+with:
+
+```text
+mlx-community/Qwen3.6-35B-A3B-6bit
+```
+
+If that server cannot be reached, the app attempts to load:
+
+```text
+mlx-community/Qwen2.5-0.5B-Instruct-4bit
+```
+
+through `mlx-lm`.
+
+### 5. Run the API
 
 ```bash
 uvicorn app.main:app --reload
 ```
 
-Open: http://127.0.0.1:8000
+Open:
 
-## Environment Variables
+```text
+http://127.0.0.1:8000
+```
 
-| Variable                  | Description                              | Default               |
-|---------------------------|------------------------------------------|-----------------------|
-| `OPENAI_API_KEY`          | Required for AI command interpretation   | —                     |
-| `OPENAI_MODEL`            | OpenAI model to use                      | `gpt-4.1-mini`        |
-| `ELEVENLABS_API_KEY`      | Optional TTS                             | —                     |
-| `ELEVENLABS_VOICE_ID`     | ElevenLabs voice ID                      | —                     |
-| `ROBOT_CHASSIS_HOST`      | Robot chassis REST API base URL          | `http://10.1.16.127:9001` |
-| `ROBOT_TOOLS_HOST`        | Robot tools REST API base URL            | `http://10.1.16.127:19001` |
-| `ROBOT_TIMEOUT_SECONDS`   | Timeout for robot HTTP calls             | `10`                  |
+FastAPI documentation is available at:
+
+```text
+http://127.0.0.1:8000/docs
+```
 
 ## API Endpoints
 
-```
-GET  /           Browser UI
-GET  /health     System status (OpenAI, ElevenLabs, dry-run mode)
-POST /command    Run a command  {"command": "go to lobby", "confirmed": false}
-GET  /history    Last 50 command results
-POST /mode       Set dry-run or real mode
-GET  /mode       Current mode
-GET  /tts/config ElevenLabs configuration status
-POST /tts/speak  Generate MP3 audio {"text": "..."}
-```
+| Method | Endpoint | Purpose |
+|---|---|---|
+| `GET` | `/` | Serve the browser interface |
+| `GET` | `/health` | App mode and AI status |
+| `POST` | `/command` | Parse and execute one or more commands |
+| `POST` | `/command/sequence` | Stream step-by-step sequence execution |
+| `GET` | `/history` | Return the latest command records |
+| `POST` | `/mode` | Switch between dry-run and real-robot mode |
+| `GET` | `/mode` | Read the active mode |
+| `GET` | `/robot/ping` | Check robot connectivity and basic status |
+| `GET` | `/markers` | Retrieve robot navigation markers |
+| `GET` | `/network/status` | Read latency, packet loss, and Plan A/B recommendation |
+| `POST` | `/network/threshold` | Change the Plan B test threshold |
+| `GET` | `/network/threshold` | Read the active threshold |
+| `GET` | `/tts/config` | Read ElevenLabs configuration status |
+| `POST` | `/tts/speak` | Generate spoken feedback |
+| `POST` | `/mission/preview` | Compile a Plan B mission without sending it |
+| `POST` | `/mission/send` | Compile and dispatch canonical commands |
+| `POST` | `/mission/send_text` | Parse natural language and dispatch a Plan B mission |
 
-## Running Tests
+## Example Requests
+
+### Dry-run a command
 
 ```bash
-python -m pytest tests/ -v
+curl -X POST http://127.0.0.1:8000/command \
+  -H "Content-Type: application/json" \
+  -d '{
+    "command": "go to the front desk",
+    "allowed_locations": ["front_desk", "waiting1"]
+  }'
 ```
 
-Tests cover the parser and safety checker without requiring an OpenAI key.
+### Preview a Plan B mission
 
-## Key Differences from Original Flask Version
+```bash
+curl -X POST http://127.0.0.1:8000/mission/preview \
+  -H "Content-Type: application/json" \
+  -d '{
+    "commands": [
+      "go to waiting1",
+      "go to front_desk",
+      "return to charger"
+    ]
+  }'
+```
 
-- **FastAPI** instead of Flask — async, typed, auto-documented at `/docs`
-- **OpenAI** instead of local MLX model — more reliable NL understanding, no GPU required
-- **ElevenLabs TTS** with browser speech synthesis fallback — same as the receptionist project
-- **`requests`** instead of `subprocess + curl` for robot HTTP calls
-- **JSON API** instead of Jinja2 form submission — UI is a proper single-page app
-- **Pytest suite** with assertions instead of a print-only test script
-- **`deque(maxlen=50)`** for thread-safe history instead of a global list with manual pop
-- **Dry-run default is True** — you have to explicitly unlock real robot mode
+### Change the network threshold for testing
 
-## Modes
+```bash
+curl -X POST http://127.0.0.1:8000/network/threshold \
+  -H "Content-Type: application/json" \
+  -d '{"good_threshold_ms": 1}'
+```
 
-The app starts in **dry-run mode** — commands are parsed and safety-checked but not sent.
+The threshold resets when the server restarts.
 
-To enable real dispatch, type exactly `ENABLE REAL ROBOT` in the mode panel.
-## Changelog (bug-fix / cleanup pass)
+## Important Notes
 
-- Fixed `poll_until_done()` crashing with `UnboundLocalError` the first time a real (non-dry-run) move command polled robot status.
-- Fixed `GET /` throwing `FileNotFoundError` — it was looking for `app/templates/index.html`, which never existed; `index.html` lives at the project root.
-- Fixed the `app/*` import structure so it matches what the test suite expects (`from app.command_parser import ...`) — imports inside the package are now relative.
-- `/tts/config` and `/tts/speak` were documented in this README but never implemented in `main.py`; they're wired up now.
-- A "stop" command sent mid-batch through the plain `/command` endpoint (as opposed to the streaming `/command/sequence` endpoint) now actually aborts the remaining queued commands instead of being ignored.
-- Capped the in-memory TTS cache so it can't grow unbounded over a long-running process.
-- Removed dead code (`_exec_estop` stub in `mission_compiler.py`).
-- Refreshed `index.html`'s visual design (mission-control theme, no functional/JS changes).
->>>>>>> 0ed89e5 (Initial commit)
+- This project is designed for a single operator. The sequence-abort flag is process-wide rather than session-specific.
+- Command history and TTS audio are stored only in memory.
+- Critical-command “alerts” are currently logged by the backend; no email transport is connected.
+- Plan B intentionally supports only actions that can be represented safely in the robot’s autonomous task-flow format.
+- The interface uses browser speech recognition, so voice-input support depends on the browser.
+- Keep the app in dry-run mode when the physical robot is not in a controlled test environment.
+
+## Before Publishing the Repository
+
+Do not commit real robot credentials, serial numbers, internal IP addresses, store IDs, client tokens, or API keys.
+
+Use environment variables and provide only placeholders in public files. Rotate any credential that has previously been committed.
+
+## Tech Stack
+
+- Python
+- FastAPI
+- Pydantic
+- Local Qwen language models
+- MLX / `mlx-lm`
+- Vanilla HTML, CSS, and JavaScript
+- Server-Sent Events
+- REST APIs
+- ElevenLabs TTS
+- Browser Speech Recognition
