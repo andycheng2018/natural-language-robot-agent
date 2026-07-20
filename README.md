@@ -4,13 +4,22 @@ A voice- and text-controlled interface that translates natural-language instruct
 
 The project supports both normal step-by-step execution and an offline-friendly **Plan B** that compiles an entire route into one autonomous mission when the network is degraded.
 
+## Demo Video
+
+Watch the robot execute natural-language commands:
+
+[![Robot Command Agent demo](https://drive.google.com/thumbnail?id=1QsV8AOX1vbax9YXLub07znFkoCE6saX6&sz=w1200)](https://drive.google.com/file/d/1QsV8AOX1vbax9YXLub07znFkoCE6saX6/view?usp=sharing)
+
+**[Open the full demo video in Google Drive](https://drive.google.com/file/d/1QsV8AOX1vbax9YXLub07znFkoCE6saX6/view?usp=sharing)**
+
+**Anyone with the link can view**.
+
 ## User Manual
 
 For a step-by-step walkthrough of the interface, command flow, safety controls, Plan A, and Plan B, see the full user guide:
 
 **[Open the Robot Command Agent User Manual](https://docs.google.com/document/d/1KqaA28YRWo-C0sdNNKRA46MXr6iLM9BtN0A01re0K98/edit?tab=t.5r2cj8r13v7c)**
 
-> Make sure the Google Doc is shared as **Anyone with the link can view** so visitors to the repository can open it.
 
 ## Demo Flow
 
