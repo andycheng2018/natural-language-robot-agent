@@ -12,7 +12,6 @@ Watch the robot execute natural-language commands:
 
 **[Open the full demo video in Google Drive](https://drive.google.com/file/d/1QsV8AOX1vbax9YXLub07znFkoCE6saX6/view?usp=sharing)**
 
-**Anyone with the link can view**.
 
 ## User Manual
 
